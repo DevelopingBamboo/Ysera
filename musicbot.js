@@ -16,19 +16,19 @@
 const Discord = require("discord.js");
 const fs = require("fs");
 const ytdl = require("ytdl-core");
-const pedir = require("pedir");
+const request = require("request");
 
 const bot = new Discord.Client({autoReconnect: true, max_message_cache: 0});
 
-const dm_text = "Hola! Escribe !comandos para ver la lista de comandos disponibles.";
-const mention_text = "Escribe !comandos para ver la lista de comandos disponibles.";
+const dm_text = "Hey there! Use !commands on a public chat room to see the command list.";
+const mention_text = "Use !commands to see the command list.";
 var aliases_file_path = "aliases.json";
 
-var para = false;
+var stopped = false;
 var inform_np = true;
 
 var now_playing_data = {};
-var cola = [];
+var queue = [];
 var aliases = {};
 
 var voice_connection = null;
@@ -41,44 +41,44 @@ var yt_api_key = null;
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
-var comandos = [
+var commands = [
 
 	{
-		command: "para",
-		description: "Paras la playlist (¡tambien pasará de la canción actual!)",
+		command: "stop",
+		description: "Stops playlist (will also skip current song!)",
 		parameters: [],
 		execute: function(message, params) {
-			if(para) {
-				message.reply("¡La reproducción ya está parada!");
+			if(stopped) {
+				message.reply("Playback is already stopped!");
 			} else {
-				para = true;
+				stopped = true;
 				if(voice_handler !== null) {
 					voice_handler.end();
 				}
-				message.reply("¡Parando!");
+				message.reply("Stopping!");
 			}
 		}
 	},
 	
 	{
-		command: "continuar",
-		description: "Continuar la playlist",
+		command: "resume",
+		description: "Resumes playlist",
 		parameters: [],
 		execute: function(message, params) {
-			if(para) {
-				para = false;
-				if(!is_cola_empty()) {
+			if(stopped) {
+				stopped = false;
+				if(!is_queue_empty()) {
 					play_next_song();
 				}
 			} else {
-				message.reply("Ya se está reproduciendo");
+				message.reply("Playback is already running");
 			}
 		}
 	},
 
     {
-        command: "pedir",
-        description: "Añade el vídeo solicitado a la cola",
+        command: "request",
+        description: "Adds the requested video to the playlist queue",
         parameters: ["video URL, video ID, playlist URL or alias"],
         execute: function (message, params) {
             if(aliases.hasOwnProperty(params[1].toLowerCase())) {
@@ -89,41 +89,41 @@ var comandos = [
             var match = params[1].match(regExp);
 
             if (match && match[2]){
-                cola_playlist(match[2], message);
+                queue_playlist(match[2], message);
             } else {
-                add_to_cola(params[1], message);
+                add_to_queue(params[1], message);
             }
         }
     },
 
 	{
-		command: "busca",
-		description: "buscaes for a video on YouTube and adds it to the cola",
+		command: "search",
+		description: "Searches for a video on YouTube and adds it to the queue",
 		parameters: ["query"],
 		execute: function(message, params) {
 			if(yt_api_key === null) {
-				message.reply("You need a YouTube API key in order to use the !busca command. Please see https://github.com/agubelu/discord-music-bot#obtaining-a-youtube-api-key");
+				message.reply("You need a YouTube API key in order to use the !search command. Please see https://github.com/agubelu/discord-music-bot#obtaining-a-youtube-api-key");
 			} else {
 				var q = "";
 				for(var i = 1; i < params.length; i++) {
 					q += params[i] + " ";
 				}
-				busca_video(message, q);
+				search_video(message, q);
 			}
 		}
 	},
 
 	{
 		command: "np",
-		description: "Muestra la canciçon actual",
+		description: "Displays the current song",
 		parameters: [],
 		execute: function(message, params) {
 
-			var response = "Reproduciendo ahora: ";
+			var response = "Now playing: ";
 			if(is_bot_playing()) {
-				response += "\"" + now_playing_data["title"] + "\" (pedido por " + now_playing_data["user"] + ")";
+				response += "\"" + now_playing_data["title"] + "\" (requested by " + now_playing_data["user"] + ")";
 			} else {
-				response += "no hay ninguna canción ahora mismo, ¡pero si quieres te canto algo!";
+				response += "nothing!";
 			}
 
 			message.reply(response);
@@ -132,18 +132,18 @@ var comandos = [
 
 	{
 		command: "setnp",
-		description: "Estableces si voy a anunciar la próxima canción que vas a escuchar o no (ya sabes, por si te da vergüenza)",
+		description: "Sets whether the bot will announce the current song or not",
 		parameters: ["on/off"],
 		execute: function(message, params) {
 
 			if(params[1].toLowerCase() == "on") {
-				var response = "Anunciaré el nombre de las canciones en el chat";
+				var response = "Will announce song names in chat";
 				inform_np = true;
 			} else if(params[1].toLowerCase() == "off") {
-				var response = "No anunciaré el nombre de las canciones en el chat (de qué tienes miedo?)";
+				var response = "Will no longer announce song names in chat";
 				inform_np = false;
 			} else {
-				var response = "¿Cómo? No te he entendido, prueba otra vez";
+				var response = "Sorry?";
 			}
 			
 			message.reply(response);
@@ -151,14 +151,14 @@ var comandos = [
 	},
 
 	{
-		command: "comandos",
-		description: "Te voy a mostrar una lista de cosas que puedo hacer, ¡flipa!",
+		command: "commands",
+		description: "Displays this message, duh!",
 		parameters: [],
 		execute: function(message, params) {
-			var response = "Mira, te comento, puedo hacer estas cosas:";
+			var response = "Available commands:";
 			
-			for(var i = 0; i < comandos.length; i++) {
-				var c = comandos[i];
+			for(var i = 0; i < commands.length; i++) {
+				var c = commands[i];
 				response += "\n!" + c.command;
 				
 				for(var j = 0; j < c.parameters.length; j++) {
@@ -173,35 +173,35 @@ var comandos = [
 	},
 
 	{
-		command: "salta",
-		description: "Se salta la canción actual, ¡menudo aburrimiento!",
+		command: "skip",
+		description: "Skips the current song",
 		parameters: [],
 		execute: function(message, params) {
 			if(voice_handler !== null) {
-				message.reply("Saltándome esta canción ...");
+				message.reply("Skipping...");
 				voice_handler.end();
 			} else {
-				message.reply("No estoy reproduciendo nada, ¿qué quieres que salte?");
+				message.reply("There is nothing being played.");
 			}
 		}
 	},
 
 	{
-		command: "cola",
-		description: "Muestra la cola the cola",
+		command: "queue",
+		description: "Displays the queue",
 		parameters: [],
 		execute: function(message, params) {
 			var response = "";
 	
-			if(is_cola_empty()) {
-				response = "the cola is empty.";
+			if(is_queue_empty()) {
+				response = "the queue is empty.";
 			} else {
-				var long_cola = cola.length > 30;
-				for(var i = 0; i < (long_cola ? 30 : cola.length); i++) {
-					response += "\"" + cola[i]["title"] + "\" (pedido por " + cola[i]["user"] + ")\n";
+				var long_queue = queue.length > 30;
+				for(var i = 0; i < (long_queue ? 30 : queue.length); i++) {
+					response += "\"" + queue[i]["title"] + "\" (requested by " + queue[i]["user"] + ")\n";
 				}
 
-				if(long_cola) response += "\n**...and " + (cola.length - 30) + " more.**";
+				if(long_queue) response += "\n**...and " + (queue.length - 30) + " more.**";
 			}
 			
 			message.reply(response);
@@ -209,39 +209,39 @@ var comandos = [
 	},
 
 	{
-		command: "clearcola",
-		description: "Elimina todas las canciones de la cola",
+		command: "clearqueue",
+		description: "Removes all songs from the queue",
 		parameters: [],
 		execute: function(message, params) {
-			cola = [];
-			message.reply("¡La cola ha sido eliminada, no queda nada ahí!");
+			queue = [];
+			message.reply("Queue has been clered!");
 		}
 	},
 
 	{
 		command: "remove",
-		description: "Elimina una canción de la cola",
-		parameters: ["pedir index or 'last'"],
+		description: "Removes a song from the queue",
+		parameters: ["Request index or 'last'"],
 		execute: function(message, params) {
 			var index = params[1];
 
-			if(is_cola_empty()) {
-				message.reply("La cola está vacía");
+			if(is_queue_empty()) {
+				message.reply("The queue is empty");
 				return;
 			} else if(isNaN(index) && index !== "last") {
-				message.reply("El argumento '" + index + "' no es un índice válido.");
+				message.reply("Argument '" + index + "' is not a valid index.");
 				return;
 			}
 
-			if(index === "last") { index = cola.length; }
+			if(index === "last") { index = queue.length; }
 			index = parseInt(index);
-			if(index < 1 || index > cola.length) {
-				message.reply("No se puede eliminar el vídeo #" + index + " de la cola (sólo hay " + cola.length + " vídeos actualmente)");
+			if(index < 1 || index > queue.length) {
+				message.reply("Cannot remove request #" + index + " from the queue (there are only " + queue.length + " requests currently)");
 				return;
 			}
 
-			var deleted = cola.splice(index - 1, 1);
-			message.reply('El vídeo "' + deleted[0].title +'" ha sido eliminado correctamente.');
+			var deleted = queue.splice(index - 1, 1);
+			message.reply('Request "' + deleted[0].title +'" was removed from the queue.');
 		}
 	},
 	
@@ -275,32 +275,32 @@ var comandos = [
 			aliases[alias] = val;
 			fs.writeFileSync(aliases_file_path, JSON.stringify(aliases));
 			
-			message.reply("Alias " + alias + " -> " + val + " establecido correctamente.");
+			message.reply("Alias " + alias + " -> " + val + " set successfully.");
 		}
 	},
 	
 	{
 		command: "deletealias",
-		description: "Elimina mi alias",
+		description: "Deletes an existing alias",
 		parameters: ["alias"],
 		execute: function(message, params) {
 
 			var alias = params[1].toLowerCase();
 
 			if(!aliases.hasOwnProperty(alias)) {
-				message.reply("¡Alias " + alias + " no existe!");
+				message.reply("Alias " + alias + " does not exist");
 			} else {
 				delete aliases[alias];
 				fs.writeFileSync(aliases_file_path, JSON.stringify(aliases));
-				message.reply("'¡Alias \"" + alias + "\" eliminado correctamente!.");
+				message.reply("Alias \"" + alias + "\" deleted successfully.");
 			}
 		}
 	},
 
 	{
     command: "setusername",
-		description: "Establece mi nombre",
-		parameters: ["Nombre de usuario o Alias"],
+		description: "Set username of bot",
+		parameters: ["Username or alias"],
 		execute: function (message, params) {
 
 			var userName = params[1];
@@ -312,15 +312,15 @@ var comandos = [
 				message.reply('✔ Username set!');
 			})
 			.catch((err) => {
-				message.reply('Error: No ha sido posible establecer el nombre de usuario, sigo teniendo el mismo nombre!');
-				console.log('¡Ups! Algo ha ido mal con el comando setusername!:', err);
+				message.reply('Error: Unable to set username');
+				console.log('Error on setusername command:', err);
 			});
 		}
 	},
   
   {
     command: "setavatar",
-		description: "Establece mi avatar, sobreescribiendo el anterior si existía",
+		description: "Set bot avatar, overriding the previous one if it already exists",
 		parameters: ["Image URL or alias"],
 		execute: function (message, params) {
 
@@ -330,11 +330,11 @@ var comandos = [
 			}
 
 			bot.user.setAvatar(url).then(user => {
-				message.reply('✔ Avatar cambiado, ahora tengo una cara nueva!');
+				message.reply('✔ Avatar set!');
 			})
 			.catch((err) => {
-				message.reply('Error: No ha sido posible establecer el avatar, sigo con la misma cara!');
-				console.log('¡Ups! Algo ha ido mal con el comando setavatar!:', err); 
+				message.reply('Error: Unable to set avatar');
+				console.log('Error on setavatar command:', err); 
       });
 		}
   }
@@ -369,7 +369,7 @@ bot.on("message", message => {
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
-function add_to_cola(video, message, mute = false) {
+function add_to_queue(video, message, mute = false) {
 
 	if(aliases.hasOwnProperty(video.toLowerCase())) {
 		video = aliases[video.toLowerCase()];
@@ -379,14 +379,14 @@ function add_to_cola(video, message, mute = false) {
 
 	ytdl.getInfo("https://www.youtube.com/watch?v=" + video_id, (error, info) => {
 		if(error) {
-			message.reply("¡Qué mal! El vídeo solicitado (" + video_id + ") no existe o no puede ser reproducido.");
+			message.reply("The requested video (" + video_id + ") does not exist or cannot be played.");
 			console.log("Error (" + video_id + "): " + error);
 		} else {
-			cola.push({title: info["title"], id: video_id, user: message.author.username});
+			queue.push({title: info["title"], id: video_id, user: message.author.username});
 			if (!mute) {
-				message.reply('"' + info["title"] + '" ha sido añadido a la cola, relájate y disfruta.');
+				message.reply('"' + info["title"] + '" has been added to the queue.');
 			}
-			if(!para && !is_bot_playing() && cola.length === 1) {
+			if(!stopped && !is_bot_playing() && queue.length === 1) {
 				play_next_song();
 			}
 		}
@@ -394,19 +394,19 @@ function add_to_cola(video, message, mute = false) {
 }
 
 function play_next_song() {
-	if(is_cola_empty()) {
-		text_channel.sendMessage("La cola está vacía!");
+	if(is_queue_empty()) {
+		text_channel.sendMessage("The queue is empty!");
 	}
 
-	var video_id = cola[0]["id"];
-	var title = cola[0]["title"];
-	var user = cola[0]["user"];
+	var video_id = queue[0]["id"];
+	var title = queue[0]["title"];
+	var user = queue[0]["user"];
 
 	now_playing_data["title"] = title;
 	now_playing_data["user"] = user;
 
 	if(inform_np) {
-		text_channel.sendMessage('Now playing: "' + title + '" (pedido por ' + user + ')');
+		text_channel.sendMessage('Now playing: "' + title + '" (requested by ' + user + ')');
 		bot.user.setGame(title);
 	}
 
@@ -416,18 +416,18 @@ function play_next_song() {
 	voice_handler.once("end", reason => {
 		voice_handler = null;
 		bot.user.setGame();
-		if(!para && !is_cola_empty()) {
+		if(!stopped && !is_queue_empty()) {
 			play_next_song();
 		}
 	});
 
-	cola.splice(0,1);
+	queue.splice(0,1);
 }
 
-function busca_command(command_name) {
-	for(var i = 0; i < comandos.length; i++) {
-		if(comandos[i].command == command_name.toLowerCase()) {
-			return comandos[i];
+function search_command(command_name) {
+	for(var i = 0; i < commands.length; i++) {
+		if(commands[i].command == command_name.toLowerCase()) {
+			return commands[i];
 		}
 	}
 
@@ -436,7 +436,7 @@ function busca_command(command_name) {
 
 function handle_command(message, text) {
 	var params = text.split(" ");
-	var command = busca_command(params[0]);
+	var command = search_command(params[0]);
 
 	if(command) {
 		if(params.length - 1 < command.parameters.length) {
@@ -447,29 +447,29 @@ function handle_command(message, text) {
 	}
 }
 
-function is_cola_empty() {
-	return cola.length === 0;
+function is_queue_empty() {
+	return queue.length === 0;
 }
 
 function is_bot_playing() {
 	return voice_handler !== null;
 }
 
-function busca_video(message, query) {
-	pedir("https://www.googleapis.com/youtube/v3/busca?part=id&type=video&q=" + encodeURIComponent(query) + "&key=" + yt_api_key, (error, response, body) => {
+function search_video(message, query) {
+	request("https://www.googleapis.com/youtube/v3/search?part=id&type=video&q=" + encodeURIComponent(query) + "&key=" + yt_api_key, (error, response, body) => {
 		var json = JSON.parse(body);
 		if("error" in json) {
 			message.reply("An error has occurred: " + json.error.errors[0].message + " - " + json.error.errors[0].reason);
 		} else if(json.items.length === 0) {
-			message.reply("No videos found matching the busca criteria.");
+			message.reply("No videos found matching the search criteria.");
 		} else {
-			add_to_cola(json.items[0].id.videoId, message);
+			add_to_queue(json.items[0].id.videoId, message);
 		}
 	})
 }
 
-function cola_playlist(playlistId, message, pageToken = '') {
-	pedir("https://www.googleapis.com/youtube/v3/playlistItems?part=snippet&maxResults=50&playlistId=" + playlistId + "&key=" + yt_api_key + "&pageToken=" + pageToken, (error, response, body) => {
+function queue_playlist(playlistId, message, pageToken = '') {
+	request("https://www.googleapis.com/youtube/v3/playlistItems?part=snippet&maxResults=50&playlistId=" + playlistId + "&key=" + yt_api_key + "&pageToken=" + pageToken, (error, response, body) => {
 		var json = JSON.parse(body);
 		if ("error" in json) {
 			message.reply("An error has occurred: " + json.error.errors[0].message + " - " + json.error.errors[0].reason);
@@ -477,12 +477,12 @@ function cola_playlist(playlistId, message, pageToken = '') {
 			message.reply("No videos found within playlist.");
 		} else {
 			for (var i = 0; i < json.items.length; i++) {
-				add_to_cola(json.items[i].snippet.resourceId.videoId, message, true)
+				add_to_queue(json.items[i].snippet.resourceId.videoId, message, true)
 			}
 			if (json.nextPageToken == null){
 				return;
 			}
-			cola_playlist(playlistId, message, json.nextPageToken)
+			queue_playlist(playlistId, message, json.nextPageToken)
 		}
 	});
 }
@@ -535,10 +535,10 @@ exports.run = function(server_name, text_channel_name, voice_channel_name, alias
 		});
 
 		bot.user.setGame();
-		console.log("Connectado!");
+		console.log("Connected!");
 	});
 
-	bot.login(NDE0NTM4NzI3Nzc2NTgzNjgx.DWypvg.cu8VM2uttr-sXIS_fZR96SeBeCQ);
+	bot.login(token);
 }
 
 exports.setYoutubeKey = function(key) {
