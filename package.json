@@ -1,0 +1,33 @@
+{
+  "name": "discord-music-bot",
+  "version": "2.3.0",
+  "description": "¿Pues qué voy a ser? Un bot. pero no uno cualquiera, compruébalo.",
+  "main": "musicbot.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": ""
+  },
+  "keywords": [
+    "discord",
+    "bot",
+    "music"
+  ],
+  "author": "Pandemonium",
+  "license": "GPL-3.0",
+  "bugs": {
+    "url": ""
+  },
+  "dependencies": {
+    "discord.js": "^11.0.0",
+    "node-opus": "^0.2.4",
+    "request": "^2.79.0",
+    "ytdl-core": "^0.7.21"
+  },
+  "engines": {
+    "node": ">=6.0.0"
+  },
+  "homepage": "https://github.com/DevelopingBamboo/Ysera/new/#readme"
+}
