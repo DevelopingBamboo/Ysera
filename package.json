@@ -4,7 +4,7 @@
   "description": "¿Pues qué voy a ser? Un bot. pero no uno cualquiera, compruébalo.",
   "main": "musicbot.js",
   "scripts": {
-    "start": "node script.js""
+    "start": "node script.js"
   },
   "repository": {
     "type": "git",
