@@ -12,7 +12,7 @@
 				//    You should have received a copy of the GNU General Public License       //   
 				//    along with this program.  If not, see <http://www.gnu.org/licenses/>.   //   
 				////////////////////////////////////////////////////////////////////////////////
-
+console.log('Pues ya estaría');
 const Discord = require("discord.js");
 const fs = require("fs");
 const ytdl = require("ytdl-core");
