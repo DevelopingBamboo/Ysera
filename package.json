@@ -4,7 +4,7 @@
   "description": "¿Pues qué voy a ser? Un bot. pero no uno cualquiera, compruébalo.",
   "main": "musicbot.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node script.js""
   },
   "repository": {
     "type": "git",
